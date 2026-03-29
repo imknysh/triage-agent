@@ -6,13 +6,15 @@ RUN groupadd --gid 1000 appuser && \
     useradd --uid 1000 --gid appuser --create-home appuser
 
 WORKDIR /app
+RUN chown appuser:appuser /app
 
-COPY pyproject.toml uv.lock ./
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
+
+USER appuser
+
 RUN uv sync --frozen --no-dev
 
 COPY --chown=appuser:appuser . .
-
-USER appuser
 
 EXPOSE 8080
 
