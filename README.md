@@ -27,8 +27,10 @@ A LangGraph-based AI agent that ingests JSON alerts from AWS sources (CloudWatch
 ├── tests/                 # Unit + property-based tests (174 tests)
 ├── k8s/
 │   └── kagent.yaml        # Kubernetes deployment template
+├── pyproject.toml         # Project metadata and dependencies (uv)
 ├── Dockerfile
-└── requirements.txt
+└── .well-known/
+    └── agent-card.json    # A2A protocol agent discovery card
 ```
 
 ## Pipeline
@@ -42,35 +44,28 @@ Invalid JSON short-circuits to an error response. Valid messages flow through al
 
 ## Prerequisites
 
-- Python 3.12+
+- Python 3.13+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) package manager
 - An OpenAI API key (or compatible provider)
 
 ## Local Development Setup
 
-1. Create and activate a virtual environment:
+1. Install dependencies:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+uv sync --dev
 ```
 
-2. Install dependencies:
+2. Set required environment variables:
 
 ```bash
-pip install -r requirements.txt
+export LLM_API_KEY="sk-your-openai-key"
 ```
 
-3. Set required environment variables:
+3. Run the server:
 
 ```bash
-export RCA_AGENT_URL="http://localhost:9090"   # RCA agent endpoint (required)
-export LLM_API_KEY="sk-your-openai-key"        # OpenAI API key
-```
-
-4. Run the server:
-
-```bash
-uvicorn server:app --host 0.0.0.0 --port 8080 --reload
+uv run uvicorn server:app --host 0.0.0.0 --port 8080 --reload
 ```
 
 5. Send a test request:
@@ -107,7 +102,7 @@ The system prompt is loaded with a fallback chain: `SYSTEM_PROMPT_URL` → `SYST
 ## Running Tests
 
 ```bash
-python3 -m pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 The test suite includes 174 tests: unit tests for each module and property-based tests (using Hypothesis) that verify correctness properties across randomly generated inputs.

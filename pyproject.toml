@@ -1,0 +1,30 @@
+[project]
+name = "alert-triage-agent"
+version = "1.0.0"
+description = "AI-powered alert triage agent using LangGraph and kagent"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langgraph",
+    "langchain-openai",
+    "langchain-core",
+    "kagent-langgraph",
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "pydantic",
+    "langsmith[otel]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "hypothesis",
+    "pytest",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel>=0.46.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["nodes*", "labelers*"]
