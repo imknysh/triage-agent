@@ -19,6 +19,9 @@ permissions:
   contents: read
   packages: write
 
+env:
+  REGISTRY: ghcr.io
+
 jobs:
   docker:
     runs-on: ubuntu-latest
