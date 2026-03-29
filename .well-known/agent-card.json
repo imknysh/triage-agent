@@ -1,0 +1,37 @@
+{
+  "name": "Alert Triage Agent",
+  "description": "AI-powered agent that ingests JSON alerts from AWS sources (CloudWatch, SNS, EventBridge), labels them with source, event type, priority, and environment, then forwards enriched messages to a downstream RCA agent via A2A protocol.",
+  "url": "http://localhost:8080",
+  "provider": {
+    "organization": "Alert Triage Team",
+    "url": "http://localhost:8080"
+  },
+  "version": "1.0.0",
+  "documentationUrl": "http://localhost:8080/docs",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "authentication": {
+    "schemes": [],
+    "credentials": null
+  },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "alert-triage",
+      "name": "Alert Triage",
+      "description": "Accepts a JSON alert message, validates it, labels it with source (CW, SNS, EventBridge, UNKNOWN), event type (alert or notification), priority (P1, P2, P3), and environment, then forwards the enriched message to an RCA agent.",
+      "tags": ["alerting", "triage", "aws", "cloudwatch", "sns", "eventbridge", "operations"],
+      "examples": [
+        "Triage a CloudWatch alarm for high CPU utilization",
+        "Classify an SNS notification about a deployment completion",
+        "Label and forward an EventBridge event for an EC2 instance state change"
+      ],
+      "inputModes": ["application/json"],
+      "outputModes": ["application/json"]
+    }
+  ]
+}

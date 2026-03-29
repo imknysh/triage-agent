@@ -1,0 +1,55 @@
+# Secret for LLM API key
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alert-triage-agent-llm
+  namespace: kagent
+type: Opaque
+stringData:
+  LLM_API_KEY: "<your-api-key>"
+---
+# Secret for RCA agent URL
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alert-triage-agent-rca
+  namespace: kagent
+type: Opaque
+stringData:
+  RCA_AGENT_URL: "http://rca-agent:8080"
+---
+# kagent Agent CRD for the Alert Triage Agent
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: alert-triage-agent
+  namespace: kagent
+spec:
+  description: >
+    AI-powered alert triage agent that ingests JSON alerts from AWS sources
+    (CloudWatch, SNS, EventBridge), labels them with source, event type,
+    priority, and environment, then forwards enriched messages to an RCA
+    agent via A2A protocol.
+  type: BYO
+  byo:
+    deployment:
+      image: alert-triage-agent:latest
+      env:
+        - name: LLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: alert-triage-agent-llm
+              key: LLM_API_KEY
+        - name: RCA_AGENT_URL
+          valueFrom:
+            secretKeyRef:
+              name: alert-triage-agent-rca
+              key: RCA_AGENT_URL
+        - name: LLM_PROVIDER
+          value: "openai"
+        - name: LLM_MODEL
+          value: "gpt-4o-mini"
+        - name: SERVICE_PORT
+          value: "8080"
+        - name: SYSTEM_PROMPT_FILE
+          value: "/etc/config/system_prompt.txt"
