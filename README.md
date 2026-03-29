@@ -97,6 +97,8 @@ curl -X POST http://localhost:8080/triage \
 | `SYSTEM_PROMPT_URL` | No | — | HTTP URL to fetch system prompt from |
 | `SYSTEM_PROMPT_FILE` | No | — | File path for system prompt (e.g. ConfigMap mount) |
 | `LOG_LEVEL` | No | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `KAGENT_URL` | No | — | KAgent server URL. When set, enables KAgentApp mode with A2A protocol and session persistence |
+| `OTEL_TRACING_ENABLED` | No | `false` | Enable OpenTelemetry tracing (kagent mode) |
 
 *Required when using an external LLM provider.
 
@@ -124,11 +126,30 @@ docker run -p 8080:8080 \
 
 ## Kubernetes (kagent)
 
-The agent is deployed as a [kagent](https://github.com/kagent-dev/kagent) `Agent` custom resource (BYO type). Requires kagent installed on your cluster.
+The agent is deployed as a [kagent](https://github.com/kagent-dev/kagent) `Agent` custom resource (BYO type). When running under kagent, the agent uses `KAgentCheckpointer` for session persistence and `KAgentApp` for A2A protocol compatibility with streaming.
+
+Requires kagent installed on your cluster.
 
 ```bash
-# Edit k8s/kagent.yaml to set your API key and RCA URL, then:
+# Create the LLM API key secret
+kubectl create secret generic alert-triage-agent-secrets -n kagent \
+  --from-literal=LLM_API_KEY=$LLM_API_KEY \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Deploy the agent
 kubectl apply -f k8s/kagent.yaml
 ```
 
-This creates the necessary Secrets and a kagent `Agent` resource that runs the containerized agent in the `kagent` namespace.
+Test via kagent CLI:
+
+```bash
+kagent invoke --agent alert-triage-agent \
+  --task '{"AlarmName":"HighCPUAlarm","NewStateValue":"ALARM"}'
+```
+
+Or via the A2A endpoint:
+
+```bash
+kubectl port-forward svc/kagent-controller 8083:8083 -n kagent
+curl localhost:8083/api/a2a/kagent/alert-triage-agent/.well-known/agent.json
+```

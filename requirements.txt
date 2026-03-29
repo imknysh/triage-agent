@@ -1,8 +1,11 @@
 langgraph
 langchain-openai
+langchain-core
+kagent-langgraph
 fastapi
 uvicorn
 httpx
 pydantic
 hypothesis
 pytest
+langsmith[otel]

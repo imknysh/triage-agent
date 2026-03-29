@@ -2,14 +2,14 @@
 
 ## Overview
 
-Build a LangGraph-based alert triage agent in Python that ingests JSON alerts from AWS sources (CloudWatch, SNS, EventBridge), labels them with source, event type, priority, and environment, then forwards enriched messages to an RCA agent via A2A protocol. Implementation follows a dependency-first build order: data models → configuration → prompt loading → labelers → LLM integration → A2A forwarder → graph nodes → workflow graph → HTTP server → Dockerfile → Kubernetes template.
+Build a LangGraph-based alert triage agent in Python that ingests JSON alerts from AWS sources (CloudWatch, SNS, EventBridge), labels them with source, event type, priority, and environment, then forwards enriched messages to an RCA agent via A2A protocol. Uses the kagent framework with KAgentCheckpointer for session persistence and KAgentApp for A2A protocol compatibility. Implementation follows a dependency-first build order: data models → configuration → prompt loading → labelers → LLM integration → A2A forwarder → graph nodes → workflow graph → HTTP server → Dockerfile → kagent Agent CRD.
 
 ## Tasks
 
 - [x] 1. Set up project structure and data models
   - [x] 1.1 Create project directory structure and `requirements.txt`
-    - Create directories: `nodes/`, `labelers/`, `prompts/`, `k8s/`, `tests/`
-    - Create `requirements.txt` with dependencies: `langgraph`, `langchain-openai`, `fastapi`, `uvicorn`, `httpx`, `pydantic`, `hypothesis`, `pytest`
+    - Create directories: `nodes/`, `labelers/`, `prompts/`, `k8s/`, `tests/`, `.well-known/`
+    - Create `requirements.txt` with dependencies: `langgraph`, `langchain-openai`, `langchain-core`, `kagent-langgraph`, `fastapi`, `uvicorn`, `httpx`, `pydantic`, `hypothesis`, `pytest`, `langsmith[otel]`
     - Create `__init__.py` files for `nodes/`, `labelers/`, `tests/` packages
     - _Requirements: 10.3_
 
@@ -86,6 +86,10 @@ Build a LangGraph-based alert triage agent in Python that ingests JSON alerts fr
     - Implement `extract_environment(message: dict) -> str` function
     - Check for `environment`, `env`, or `environment_id` fields (including nested)
     - Extract AWS account ID from ARN fields (`TopicArn`, `Source`, `account` in EventBridge `detail`)
+    - Scan text for "Environment: <value>" patterns in string values
+    - Deep scan for env-related field names (`stage`, `namespace`, `cluster`, `stack`, `tier`) anywhere in message
+    - Scan for known environment name patterns in env-hinted keys
+    - Scan for any ARN string anywhere and extract account ID
     - Fall back to `"UNKNOWN"`
     - _Requirements: 5.1, 5.2, 5.3_
 
@@ -168,21 +172,25 @@ Build a LangGraph-based alert triage agent in Python that ingests JSON alerts fr
 
 - [x] 8. Implement LangGraph workflow
   - [x] 8.1 Build triage graph (`graph.py`)
-    - Implement `build_triage_graph(llm, rca_url: str)` function
+    - Implement `build_triage_graph(llm, system_prompt: str, rca_url: str)` function
     - Create `StateGraph(TriageState)` with all 6 nodes: validate, label_source, label_event_type, label_priority, label_environment, forward_to_rca
     - Set entry point to `validate` with conditional edges (valid → label_source, invalid → END)
     - Wire sequential edges: label_source → label_event_type → label_priority → label_environment → forward_to_rca → END
-    - Compile and return the graph
+    - Integrate `KAgentCheckpointer` for session persistence when `KAGENT_URL` is set
+    - Compile and return the graph with checkpointer
     - _Requirements: 1.1, 1.2, 2.1, 3.1, 4.1, 5.1, 6.1_
 
-- [ ] 9. Implement HTTP server
+- [x] 9. Implement HTTP server
   - [x] 9.1 Implement FastAPI server (`server.py`)
-    - Create FastAPI app with `POST /triage` endpoint
+    - Dual-mode server: KAgentApp (when `KAGENT_URL` set) or standalone FastAPI
+    - Standalone: `POST /triage` endpoint with request logging (timestamp, source IP, body)
+    - KAgent mode: `KAgentApp` with A2A protocol, streaming, and session persistence
     - Load configuration via `load_config()` at startup; fail fast on invalid config
     - Load system prompt via `load_system_prompt()` at startup; fail fast if all sources fail
-    - Initialize LLM client and build triage graph at startup
-    - Accept raw JSON body, invoke triage graph, return result
+    - Initialize LLM client and build triage graph with `KAgentCheckpointer` at startup
+    - Serve `.well-known/agent-card.json` for A2A discovery
     - Return 400 for invalid JSON, 500 for processing errors, 200 with triage result on success
+    - Configurable log level via `LOG_LEVEL` env var
     - _Requirements: 1.1, 1.2, 1.3, 7.1, 8.1, 8.2, 8.3, 9.1, 9.2_
 
 - [x] 10. Checkpoint - Ensure all tests pass
@@ -191,6 +199,7 @@ Build a LangGraph-based alert triage agent in Python that ingests JSON alerts fr
 - [x] 11. Create Dockerfile and Kubernetes template
   - [x] 11.1 Create Dockerfile
     - Use `python:3.12-slim` base image
+    - Create non-root `appuser` (UID 1000) for security
     - Copy `requirements.txt` and install dependencies
     - Copy application source code
     - Expose service port (default 8080)
@@ -198,11 +207,10 @@ Build a LangGraph-based alert triage agent in Python that ingests JSON alerts fr
     - _Requirements: 10.1, 10.2, 10.3, 10.4_
 
   - [x] 11.2 Create KAgent Kubernetes template (`k8s/kagent.yaml`)
-    - Define Deployment resource for the Alert Triage Agent container
-    - Define Service resource to expose the agent port
-    - Configure environment variables via ConfigMap (LLM settings, `RCA_AGENT_URL`, `SYSTEM_PROMPT_URL`, `SYSTEM_PROMPT_FILE`)
-    - Include optional volume mount for ConfigMap-based system prompt file
-    - Define resource requests and limits for the container
+    - Define kagent `Agent` CRD (apiVersion: kagent.dev/v1alpha2, kind: Agent, type: BYO)
+    - Configure container image with env vars from Secrets (LLM_API_KEY) and inline (LLM_PROVIDER, LLM_MODEL, RCA_AGENT_URL)
+    - Enable OpenTelemetry tracing via OTEL env vars
+    - Create `.well-known/agent-card.json` for A2A protocol discovery
     - _Requirements: 11.1, 11.2, 11.3, 11.4_
 
 - [x] 12. Final checkpoint - Ensure all tests pass
@@ -216,3 +224,8 @@ Build a LangGraph-based alert triage agent in Python that ingests JSON alerts fr
 - Property tests use the `hypothesis` library with custom strategies for generating realistic alert messages
 - Unit tests validate specific examples and edge cases
 - The implementation language is Python, matching the design document
+- The agent supports dual-mode operation: standalone FastAPI (local dev) and KAgentApp (kagent cluster)
+- KAgentCheckpointer provides session persistence when running under kagent
+- A2A agent card served at `.well-known/agent-card.json` for protocol discovery
+- Dockerfile runs as non-root user (`appuser`) for security
+- Kubernetes deployment uses kagent `Agent` CRD (BYO type) instead of raw Deployment/Service

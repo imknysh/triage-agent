@@ -1,10 +1,17 @@
-"""LangGraph triage workflow definition.
+"""LangGraph triage workflow definition with KAgent checkpointer.
 
 Builds and compiles the full triage StateGraph with six nodes:
 validate → label_source → label_event_type → label_priority →
 label_environment → forward_to_rca.
+
+Uses KAgentCheckpointer for session persistence when KAGENT_URL is set,
+otherwise falls back to no checkpointer (local dev).
 """
 
+import logging
+import os
+
+import httpx
 from langgraph.graph import StateGraph, END
 
 from models import TriageState
@@ -15,19 +22,45 @@ from nodes.label_priority import create_label_priority_node
 from nodes.label_environment import label_environment_node
 from nodes.forward_to_rca import create_forward_to_rca_node
 
+logger = logging.getLogger(__name__)
+
+
+def _create_checkpointer():
+    """Create KAgentCheckpointer if kagent is available, else None."""
+    kagent_url = os.getenv("KAGENT_URL")
+    if not kagent_url:
+        logger.info("KAGENT_URL not set, running without checkpointer")
+        return None
+
+    try:
+        from kagent.core import KAgentConfig
+        from kagent.langgraph import KAgentCheckpointer
+
+        config = KAgentConfig()
+        checkpointer = KAgentCheckpointer(
+            client=httpx.AsyncClient(base_url=config.url),
+            app_name=config.app_name,
+        )
+        logger.info("KAgentCheckpointer initialized (url=%s)", config.url)
+        return checkpointer
+    except ImportError:
+        logger.warning("kagent packages not installed, running without checkpointer")
+        return None
+
 
 def build_triage_graph(llm, system_prompt: str, rca_url: str):
     """Build and compile the alert triage LangGraph workflow.
 
     Args:
-        llm: A LangChain chat model instance used for event type and
-            priority classification.
+        llm: A LangChain chat model instance.
         system_prompt: The system prompt injected into LLM calls.
         rca_url: The URL of the downstream RCA agent.
 
     Returns:
-        A compiled LangGraph ``CompiledStateGraph`` ready to be invoked.
+        A compiled LangGraph CompiledStateGraph.
     """
+    checkpointer = _create_checkpointer()
+
     graph = StateGraph(TriageState)
 
     # -- nodes --
@@ -51,4 +84,4 @@ def build_triage_graph(llm, system_prompt: str, rca_url: str):
     graph.add_edge("label_environment", "forward_to_rca")
     graph.add_edge("forward_to_rca", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
