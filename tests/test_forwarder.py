@@ -1,43 +1,49 @@
 """Unit tests for the A2A forwarder module."""
 
+import json
 import logging
 from unittest.mock import patch, MagicMock
 
 import httpx
 import pytest
 
-from forwarder import build_a2a_task, forward_to_rca, MAX_RETRIES
+from forwarder import build_a2a_message, forward_to_rca, MAX_RETRIES
 
 
-# ── build_a2a_task ──────────────────────────────────────────────────────────
+# ── build_a2a_message ───────────────────────────────────────────────────────
 
-class TestBuildA2ATask:
+class TestBuildA2AMessage:
     def test_envelope_structure(self):
         msg = {"original_message": {"foo": 1}, "labels": {"source": "CW"}}
-        task = build_a2a_task(msg)
+        envelope = build_a2a_message(msg)
 
-        assert task["jsonrpc"] == "2.0"
-        assert task["method"] == "tasks/send"
-        assert "params" in task
-        assert "id" in task["params"]
-        assert isinstance(task["params"]["id"], str)
-        assert len(task["params"]["id"]) > 0
+        assert envelope["jsonrpc"] == "2.0"
+        assert envelope["method"] == "message/send"
+        assert "id" in envelope
+        assert isinstance(envelope["id"], str)
+        assert "params" in envelope
 
     def test_message_part_contains_enriched_data(self):
         msg = {"labels": {"priority": "P1"}}
-        task = build_a2a_task(msg)
+        envelope = build_a2a_message(msg)
 
-        message = task["params"]["message"]
+        message = envelope["params"]["message"]
         assert message["role"] == "user"
+        assert "messageId" in message
         assert len(message["parts"]) == 1
         part = message["parts"][0]
-        assert part["type"] == "data"
-        assert part["data"] is msg
+        assert part["kind"] == "text"
+        assert json.loads(part["text"]) == msg
 
-    def test_unique_task_ids(self):
+    def test_unique_request_ids(self):
         msg = {"x": 1}
-        ids = {build_a2a_task(msg)["params"]["id"] for _ in range(50)}
-        assert len(ids) == 50, "Task IDs should be unique"
+        ids = {build_a2a_message(msg)["id"] for _ in range(50)}
+        assert len(ids) == 50, "Request IDs should be unique"
+
+    def test_unique_message_ids(self):
+        msg = {"x": 1}
+        ids = {build_a2a_message(msg)["params"]["message"]["messageId"] for _ in range(50)}
+        assert len(ids) == 50, "Message IDs should be unique"
 
 
 # ── forward_to_rca ─────────────────────────────────────────────────────────
@@ -50,10 +56,8 @@ class TestForwardToRca:
 
         assert result is True
         assert mock_post.call_count == 1
-        mock_post.assert_called_once()
-        # Verify URL construction
         args, _ = mock_post.call_args
-        assert args[0] == "http://rca:8080/tasks/send"
+        assert args[0] == "http://rca:8080"
 
     @patch("forwarder.time.sleep")
     @patch("forwarder.httpx.post")
@@ -92,7 +96,6 @@ class TestForwardToRca:
         mock_post.side_effect = httpx.ConnectError("refused")
         forward_to_rca({"a": 1}, "http://rca:8080")
 
-        # Should sleep between attempts 1→2 and 2→3 (not after the last)
         assert mock_sleep.call_count == 2
         mock_sleep.assert_any_call(1)
         mock_sleep.assert_any_call(2)
@@ -105,7 +108,6 @@ class TestForwardToRca:
             forward_to_rca({"a": 1}, "http://rca:8080")
 
         error_logs = [r for r in caplog.records if r.levelno == logging.ERROR]
-        # 3 per-attempt errors + 1 final "all attempts failed" log
         assert len(error_logs) == MAX_RETRIES + 1
 
     @patch("forwarder.time.sleep")
@@ -126,4 +128,4 @@ class TestForwardToRca:
         forward_to_rca({"a": 1}, "http://rca:8080/")
 
         args, _ = mock_post.call_args
-        assert args[0] == "http://rca:8080/tasks/send"
+        assert args[0] == "http://rca:8080"
